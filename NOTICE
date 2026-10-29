@@ -1,0 +1,10 @@
+limen
+Copyright 2026 darki73
+
+limen is a pull-through cache for container registries, with limenctl to point
+Docker hosts at it, written by darki73 and published at
+https://github.com/nauarch/limen under the Apache License, Version 2.0.
+
+Under section 4(d) of that licence, any redistribution of limen or of a work
+derived from it must carry this notice, in the source, in a NOTICE file shipped
+with it, or wherever such third-party notices normally appear.

@@ -1,0 +1,63 @@
+# Tests limen on Linux and Windows (limenctl runs on both), with the race detector on Linux,
+# checks formatting, vet and known vulnerabilities, and builds limen with the limenctl binaries it
+# hands out, as a release does.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        if: runner.os == 'Linux'
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+      - run: go vet ./...
+      - name: test
+        if: runner.os != 'Linux'
+        run: go test -count=1 ./...
+      - name: test, with the race detector
+        if: runner.os == 'Linux'
+        run: go test -race -count=1 ./...
+
+  vulnerabilities:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: limenctl for every platform limen hands it out for
+        run: go generate ./internal/frontdoor/setup/dist
+      - name: limen with them built in
+        run: CGO_ENABLED=0 go build -trimpath -o /tmp/limen ./cmd/limen && /tmp/limen --version
+      - name: the image, for both platforms
+        run: docker buildx create --use && docker buildx build --platform linux/amd64,linux/arm64 .

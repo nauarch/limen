@@ -1,0 +1,17 @@
+# Keeps what limen builds with current: the GitHub Actions its workflows use, and the Go and
+# base images in its Dockerfile. limen has no Go module dependencies to update.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    labels: [ci]
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    labels: [build]

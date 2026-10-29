@@ -1,0 +1,94 @@
+name: limen bug
+description: The cache misbehaves - pulls fail, are slow, serve the wrong thing, or limen will not run
+labels: [bug, limen]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Before pasting anything, remove what you would not publish:
+        addresses, host names, private image names, tokens. Keep only what the bug needs.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: The smallest steps that show it. An image that triggers it helps a lot.
+      placeholder: |
+        1. limen running with --max-size=50G
+        2. docker pull ghcr.io/org/app:1.2 on a host configured by limenctl
+        3. the pull fails with ...
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: limen version
+      description: Output of `limen --version`, or the version in `/metrics` (`limen_build_info`).
+      placeholder: limen v0.1.0 (https://github.com/nauarch/limen, Apache-2.0)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: runs
+    attributes:
+      label: How limen runs
+      options:
+        - systemd service (limen install)
+        - Docker / compose (ghcr.io/nauarch/limen)
+        - Other (say in the description)
+    validations:
+      required: true
+
+  - type: input
+    id: flags
+    attributes:
+      label: limen's flags
+      description: The command line limen runs with (from the systemd unit or compose file).
+      placeholder: --dir=/var/lib/limen --max-size=300G
+    validations:
+      required: false
+
+  - type: dropdown
+    id: client
+    attributes:
+      label: The client pulling
+      multiple: true
+      options:
+        - Docker Engine, containerd image store
+        - Docker Engine, classic image store
+        - Docker Desktop (Windows)
+        - Docker Desktop (macOS)
+        - Kubernetes / containerd
+        - Talos
+        - Podman or another client
+    validations:
+      required: true
+
+  - type: input
+    id: registry
+    attributes:
+      label: Registry
+      description: Which registry the image comes from.
+      placeholder: ghcr.io
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        limen's log around the failure (`journalctl -u limen --since "-15min"`, or `docker logs`),
+        and the client's error. Formatted as code automatically.
+      render: text
+    validations:
+      required: false

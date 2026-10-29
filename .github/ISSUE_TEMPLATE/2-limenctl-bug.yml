@@ -1,0 +1,86 @@
+name: limenctl bug
+description: plan, configure, unconfigure, verify, migrate, rollback or cleanup-old-store does the wrong thing
+labels: [bug, limenctl]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. `limenctl plan` output describes the host, which may be private:
+        remove addresses, host names, project and image names you would not publish.
+
+        **If a migration stopped half way**, the host's state is in
+        `/var/lib/limenctl/migration.json`, and `limenctl rollback` (a dry run without `--yes`)
+        shows the way back. Please say whether you rolled back.
+
+  - type: dropdown
+    id: command
+    attributes:
+      label: Command
+      options:
+        - plan
+        - configure
+        - unconfigure
+        - verify
+        - migrate
+        - rollback
+        - cleanup-old-store
+        - setup script (/setup or /setup.ps1)
+    validations:
+      required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: The command line you ran, what you expected, and what happened instead.
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: limenctl version
+      description: Output of `limenctl version` (or `... /setup | sudo sh -s -- version`).
+      placeholder: limenctl v0.1.0 (https://github.com/nauarch/limen, Apache-2.0)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: host
+    attributes:
+      label: Host
+      options:
+        - Linux amd64
+        - Linux arm64
+        - Windows, Docker Desktop
+        - macOS, Docker Desktop
+        - Other (say in the description)
+    validations:
+      required: true
+
+  - type: input
+    id: docker
+    attributes:
+      label: Docker
+      description: Output of `docker version --format '{{.Server.Version}}'` and the image store `plan` reports.
+      placeholder: 29.9.2, classic image store
+    validations:
+      required: true
+
+  - type: textarea
+    id: output
+    attributes:
+      label: Output
+      description: What limenctl printed, and `limenctl plan` for the host if it helps. Formatted as code automatically.
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: hooks
+    attributes:
+      label: /etc/limenctl.json
+      description: If the host names hooks, the file's contents (with private paths shortened).
+      render: json
+    validations:
+      required: false

@@ -1,0 +1,4 @@
+map/
+/bin/
+/dist/
+/internal/frontdoor/setup/dist/bin/limenctl-*

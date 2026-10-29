@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/nauarch/limen/security/advisories/new
+    about: Privately, please, never as a public issue. See SECURITY.md for what is in scope.
+  - name: Read the README first
+    url: https://github.com/nauarch/limen#readme
+    about: Setup, every limenctl command, the flags, and what has been tested.

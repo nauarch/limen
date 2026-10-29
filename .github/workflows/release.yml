@@ -1,0 +1,74 @@
+# Releases a tagged version (v1.2.3): the limen and limenctl binaries with their checksums,
+# LICENSE and NOTICE on a GitHub release, and limen's image for linux/amd64 and linux/arm64 on
+# ghcr.io, all stamped with the tag. A tag with a suffix (v1.2.3-rc.1) is a pre-release, and does
+# not move the image's latest tag.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  TAG: ${{ github.ref_name }}
+
+jobs:
+  binaries:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: test
+        run: go test -race -count=1 ./...
+      - name: build
+        env:
+          LIMEN_VERSION: ${{ github.ref_name }}
+        run: |
+          set -eu
+          go generate ./internal/frontdoor/setup/dist
+          mkdir -p out
+          cp internal/frontdoor/setup/dist/bin/limenctl-* LICENSE NOTICE out/
+          for arch in amd64 arm64; do
+            CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath \
+              -ldflags="-s -w -X main.version=$LIMEN_VERSION" -o out/limen-linux-$arch ./cmd/limen
+          done
+          (cd out && sha256sum -- * > SHA256SUMS)
+      - name: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          flags=(--title "$TAG" --generate-notes)
+          case "$TAG" in *-*) flags+=(--prerelease) ;; esac
+          gh release create "$TAG" out/* "${flags[@]}"
+
+  image:
+    needs: binaries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: log in to ghcr.io
+        env:
+          TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.actor }}
+        run: echo "$TOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin
+      - name: build and push
+        env:
+          REPOSITORY: ${{ github.repository }}
+          SOURCE: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          set -eu
+          image="ghcr.io/$(echo "$REPOSITORY" | tr '[:upper:]' '[:lower:]')"
+          tags=(-t "$image:$TAG")
+          case "$TAG" in *-*) ;; *) tags+=(-t "$image:latest") ;; esac
+          docker buildx create --use
+          docker buildx build --platform linux/amd64,linux/arm64 \
+            --build-arg VERSION="$TAG" \
+            --label org.opencontainers.image.source="$SOURCE" \
+            --label org.opencontainers.image.version="$TAG" \
+            "${tags[@]}" --push .
