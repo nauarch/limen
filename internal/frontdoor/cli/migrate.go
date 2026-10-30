@@ -114,12 +114,21 @@ func refused(w io.Writer, why []string) bool {
 
 // printMigration writes a move's steps in the order they are taken.
 func printMigration(w io.Writer, m hostplan.Migration) {
-	fmt.Fprintf(w, "Moving to the %s image store:\n", m.To)
 	step := 0
 	say := func(format string, a ...any) {
 		step++
 		fmt.Fprintf(w, "\n%d. %s\n", step, fmt.Sprintf(format, a...))
 	}
+	if m.Resume {
+		fmt.Fprintf(w, "Finishing the move to the %s image store (Docker is on it already):\n", m.To)
+		if len(m.Keep) > 0 {
+			say("load the images saved in %s into the new store", m.KeepPath)
+		}
+		printStarts(w, m, say)
+		printNotes(w, m.Notes)
+		return
+	}
+	fmt.Fprintf(w, "Moving to the %s image store:\n", m.To)
 	if len(m.Keep) > 0 {
 		say("save the images built on this host to %s (about %s; loaded back after the switch)", m.KeepPath, bytesize.Format(m.KeepBytes))
 		for _, ref := range m.Keep {
@@ -145,11 +154,21 @@ func printMigration(w io.Writer, m hostplan.Migration) {
 	if len(m.Keep) > 0 {
 		say("load the saved images into the new store")
 	}
-	say("start the projects")
+	printStarts(w, m, say)
+	printNotes(w, m.Notes)
+}
+
+// printStarts writes the step starting the projects: on the containerd store each pulls its
+// images first.
+func printStarts(w io.Writer, m hostplan.Migration, say func(string, ...any)) {
+	if m.To == hostplan.Containerd {
+		say("pull each project's images, then start it")
+	} else {
+		say("start the projects")
+	}
 	for _, p := range m.Projects {
 		fmt.Fprintf(w, "   %s: %s\n", p.Name, how(p.Start, "docker compose up --detach"))
 	}
-	printNotes(w, m.Notes)
 }
 
 // how names a hook, or compose's own command when there is none.

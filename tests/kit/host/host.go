@@ -88,11 +88,13 @@ func (e *Engine) PruneImages(context.Context) error {
 	return e.Err
 }
 
-// Files is an in-memory filesystem by absolute path, with free space per path.
+// Files is an in-memory filesystem by absolute path, with free space per path; its files are
+// executable but for those in Plain.
 type Files struct {
 	mu      sync.Mutex
 	Data    map[string][]byte
 	FreeAt  map[string]int64
+	Plain   []string
 	Written []string
 	Removed []string
 	Made    []string
@@ -184,6 +186,16 @@ func (f *Files) MakeDir(path string) error {
 	defer f.mu.Unlock()
 	f.Made = append(f.Made, path)
 	return nil
+}
+
+// Executable tells whether a file is there and not Plain.
+func (f *Files) Executable(path string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if _, ok := f.Data[path]; !ok {
+		return false, fmt.Errorf("%s: %w", path, errkind.ErrNotFound)
+	}
+	return !slices.Contains(f.Plain, path), nil
 }
 
 // Remove drops the files at or under path and notes it.
@@ -287,8 +299,8 @@ func (l *Log) add(event string) {
 	l.Events = append(l.Events, event)
 }
 
-// Compose records "stop <project>" and "up <project>", failing the one equal to Fail; Missing
-// makes it a host without the compose plugin.
+// Compose records "stop <project>", "up <project>" and "pull <project>", failing the one equal to
+// Fail; Missing makes it a host without the compose plugin.
 type Compose struct {
 	Log     *Log
 	Fail    string
@@ -308,6 +320,9 @@ func (c *Compose) Stop(_ context.Context, p host.Project) error { return c.do("s
 
 // Up records the start.
 func (c *Compose) Up(_ context.Context, p host.Project) error { return c.do("up", p) }
+
+// Pull records the pull.
+func (c *Compose) Pull(_ context.Context, p host.Project) error { return c.do("pull", p) }
 
 // do records a compose command, failing it when it is Fail.
 func (c *Compose) do(command string, p host.Project) error {

@@ -10,6 +10,7 @@ package report_test
 //   - A limen that does not answer is noted, not an error
 //   - An engine that does not answer is an error
 //   - A compose plugin that cannot run is noted with why
+//   - Hooks naming a script that is missing or not executable are noted with why, and none kept
 
 import (
 	"context"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/nauarch/limen/internal/contracts/host"
 	"github.com/nauarch/limen/internal/features/hosts/app/report"
+	"github.com/nauarch/limen/internal/features/hosts/domain/hooks"
 	"github.com/nauarch/limen/internal/features/hosts/domain/hoststoml"
 	"github.com/nauarch/limen/internal/features/hosts/domain/layout"
 	fake "github.com/nauarch/limen/tests/kit/host"
@@ -95,6 +97,22 @@ func TestAnEngineNotAnsweringIsAnError(t *testing.T) {
 	e.Err = errors.New("cannot connect to the Docker daemon")
 	if _, err := g.Gather(context.Background(), ""); err == nil {
 		t.Error("no error")
+	}
+}
+
+func TestHooksThatCannotRunAreNoted(t *testing.T) {
+	g, _, files := gatherer(&fake.Limen{})
+	files.Data[hooks.Path] = []byte(`{"projects":{"dns":{"stop":"/srv/dns/stop.sh","start":"/srv/dns/start.sh"}}}`)
+	if f, err := g.Gather(context.Background(), ""); err != nil || f.HooksErr != "" || f.Hooks["dns"].Start != "/srv/dns/start.sh" {
+		t.Fatalf("runnable hooks: %+v %q %v", f.Hooks, f.HooksErr, err)
+	}
+	files.Plain = []string{"/srv/dns/start.sh"}
+	if f, _ := g.Gather(context.Background(), ""); !strings.Contains(f.HooksErr, "/srv/dns/start.sh is not executable (chmod +x /srv/dns/start.sh)") || f.Hooks != nil {
+		t.Errorf("not executable: %+v %q", f.Hooks, f.HooksErr)
+	}
+	delete(files.Data, "/srv/dns/stop.sh")
+	if f, _ := g.Gather(context.Background(), ""); !strings.Contains(f.HooksErr, "/srv/dns/stop.sh does not exist") {
+		t.Errorf("missing: %q", f.HooksErr)
 	}
 }
 

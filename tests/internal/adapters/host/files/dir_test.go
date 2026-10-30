@@ -9,10 +9,12 @@ package files_test
 //   - Size counts every file below a folder; Remove takes a folder whole, never the root itself
 //   - Free space is asked of the nearest folder that exists, never failing for a missing path
 //   - With no root, a full path is taken as it is
+//   - A file is executable by its executable bits (Windows has none: every file is)
 
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"testing"
 
@@ -88,6 +90,24 @@ func TestMissingIsNotFound(t *testing.T) {
 	}
 	if _, err := d.List("/srv/dns"); errkind.Of(err) != errkind.NotFound {
 		t.Errorf("list: %v", err)
+	}
+}
+
+func TestAFileIsExecutableByItsBits(t *testing.T) {
+	d := files.Dir{Root: t.TempDir()}
+	for path, perm := range map[string]uint32{"/srv/dns/start.sh": 0o755, "/srv/dns/stop.sh": 0o644} {
+		if err := d.Write(path, []byte("#!/bin/sh\n"), perm); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if ok, err := d.Executable("/srv/dns/start.sh"); err != nil || !ok {
+		t.Errorf("0755: %v %v", ok, err)
+	}
+	if ok, err := d.Executable("/srv/dns/stop.sh"); err != nil || ok != (runtime.GOOS == "windows") {
+		t.Errorf("0644: %v %v", ok, err)
+	}
+	if _, err := d.Executable("/srv/dns/update.sh"); errkind.Of(err) != errkind.NotFound {
+		t.Errorf("missing: %v", err)
 	}
 }
 

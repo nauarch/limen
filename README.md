@@ -125,11 +125,14 @@ does the move in this order:
 4. Stops the compose projects, those serving the host's DNS last.
 5. Writes `daemon.json` (containerd store on, limen as mirror) and the `hosts.toml` files, and
    restarts Docker.
-6. Loads the saved images and starts the projects again, DNS first. Their images come from limen
-   at LAN speed.
+6. Loads the saved images, then pulls each project's images and starts it, DNS first. Their
+   layers come from limen at LAN speed. The pull happens before a project's start hook, while its
+   stop hook's arrangements still hold: on the containerd store a pull also asks the registry
+   itself for the image's referrers, which needs the host to resolve names.
 
 Each stage is recorded in `/var/lib/limenctl/migration.json`, so a migration that fails half way
-can be rolled back. Volumes and bind mounts are untouched; data a container wrote outside its
+can be rolled back. One that stopped after Docker came back on the new store can instead be
+finished: `migrate` again only pulls and starts the projects. Volumes and bind mounts are untouched; data a container wrote outside its
 volumes stays in the old store (`plan` warns about it). `plan` blocks a migration under swarm,
 user-namespace remapping, too little disk, or without `docker compose` (v2).
 
@@ -142,6 +145,9 @@ If a project must stop or start through its own scripts (say, a DNS server that 
 ```json
 {"projects": {"dns": {"stop": "/srv/dns/stop.sh", "start": "/srv/dns/start.sh"}}}
 ```
+
+limenctl runs each as a program of its own, in the project's folder, so each must be executable
+(`chmod +x`); `plan` and `migrate` refuse hooks that are missing or are not.
 
 ## Talos, Kubernetes and containerd
 

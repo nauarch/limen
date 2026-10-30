@@ -40,6 +40,9 @@ type Migration struct {
 	Notes []string
 	// To is the store the host ends on.
 	To string
+	// Resume finishes a move that stopped after Docker came back on the new store: only the
+	// images saved before it are loaded and the projects started.
+	Resume bool
 	// Keep are the images built on the host (no registry has them), saved to KeepPath before the
 	// switch and loaded after, about KeepBytes (sizes summed per image).
 	Keep      []string

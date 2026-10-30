@@ -44,6 +44,12 @@ func (c *Compose) Up(ctx context.Context, p host.Project) error {
 	return err
 }
 
+// Pull pulls a project's images, passing the services it builds.
+func (c *Compose) Pull(ctx context.Context, p host.Project) error {
+	_, err := c.run(ctx, args(p, "pull", "--ignore-buildable", "--quiet")...)
+	return err
+}
+
 // args is a compose command line naming the project, its folder and its files, as compose
 // recorded them on its containers.
 func args(p host.Project, command ...string) []string {

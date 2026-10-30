@@ -152,7 +152,7 @@ func TestHooksAreReported(t *testing.T) {
 		t.Errorf("hooked: %+v", r.Findings)
 	}
 	f.Hooks, f.HooksErr = nil, "/etc/limenctl.json: invalid"
-	if r := plan.Decide(f); !has(r, hostplan.Warn, "hooks cannot be read: /etc/limenctl.json: invalid") || !has(r, hostplan.Info, "scripts beside it") {
+	if r := plan.Decide(f); !has(r, hostplan.Warn, "hooks cannot be used: /etc/limenctl.json: invalid") || !has(r, hostplan.Info, "scripts beside it") {
 		t.Errorf("unreadable: %+v", r.Findings)
 	}
 }

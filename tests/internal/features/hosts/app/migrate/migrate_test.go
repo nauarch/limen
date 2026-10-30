@@ -6,12 +6,15 @@ package migrate_test
 // Verifies:
 //   - A migration saves the images built on the host first and loads them back after the switch;
 //   - A migration fills limen first, stops the projects (DNS last), writes daemon.json with the
-//     store on and limen as mirror, restarts Docker, starts the projects (DNS first), and records
-//     each stage in the journal
-//   - limen failing to fetch stops it before anything stops
+//     store on and limen as mirror, restarts Docker, pulls and starts each project (DNS first),
+//     and records each stage in the journal
+//   - limen failing to fetch stops it before anything stops; so do hooks that cannot run
 //   - Docker coming back on the classic store, or a project failing to start, leaves the journal
 //     saying how far it got; rollback then stops, puts daemon.json back, restarts and starts
-//   - A migration stopped half way refuses a new one; a refused plan is never made
+//     (pulling nothing)
+//   - A migration stopped before Docker came back on the new store refuses a new one; one stopped
+//     after it is finished by migrate, which only pulls and starts the projects, passing a failed
+//     pull; a refused plan is never made
 //   - Docker Desktop is refused every move between stores, which it makes in its own settings
 
 import (
@@ -77,6 +80,8 @@ func newRig() *rig {
 		files: fake.NewFiles(map[string]string{
 			layout.Linux().DaemonJSON: `{"log-driver":"local"}`,
 			hooks.Path:                `{"projects":{"dns":{"stop":"/srv/dns/stop.sh","start":"/srv/dns/start.sh"}}}`,
+			"/srv/dns/stop.sh":        "#!/bin/sh\n",
+			"/srv/dns/start.sh":       "#!/bin/sh\n",
 			"/etc/resolv.conf":        "nameserver 192.0.2.54\n",
 		}),
 		limen: &fake.Limen{Served: []string{"docker.io"}},
@@ -128,7 +133,7 @@ func TestAMigrationMovesTheHost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%v (steps %v)", err, steps)
 	}
-	want := []string{"stop web", "run /srv/dns/stop.sh", "restart docker", "run /srv/dns/start.sh", "up web"}
+	want := []string{"stop web", "run /srv/dns/stop.sh", "restart docker", "pull dns", "run /srv/dns/start.sh", "pull web", "up web"}
 	if !slices.Equal(r.log.Events, want) {
 		t.Errorf("events %v", r.log.Events)
 	}
@@ -177,6 +182,47 @@ func TestDockerStayingClassicIsCaught(t *testing.T) {
 	if r.log.Events[len(r.log.Events)-1] != "restart docker" {
 		t.Errorf("went on: %v", r.log.Events)
 	}
+	if plan, _ := r.m.PlanMigration(context.Background(), hostplan.MigrateRequest{Limen: limen}); len(plan.Refusals) == 0 || plan.Resume {
+		t.Errorf("a new migration was not refused half way: %+v", plan)
+	}
+}
+
+func TestAMigrationStoppedOnTheNewStoreIsFinished(t *testing.T) {
+	r := newRig()
+	r.m.Compose = &fake.Compose{Log: r.log, Fail: "up web"}
+	if _, err := r.run(t, hostplan.MigrateRequest{Limen: limen}); err == nil || r.state(t) != migration.Switched {
+		t.Fatalf("%v, journal %s", err, r.state(t))
+	}
+	r.m.Compose = &fake.Compose{Log: r.log, Fail: "pull web"}
+	r.log.Events = nil
+	written := len(r.files.Written)
+	plan, err := r.m.PlanMigration(context.Background(), hostplan.MigrateRequest{Limen: limen})
+	if err != nil || !plan.Resume || len(plan.Refusals) != 0 || len(plan.Projects) != 2 || len(plan.Keep) != 0 {
+		t.Fatalf("%+v %v", plan, err)
+	}
+	var steps []string
+	if err := r.m.Migrate(context.Background(), plan, func(s string) { steps = append(steps, s) }); err != nil {
+		t.Fatalf("%v (steps %v)", err, steps)
+	}
+	want := []string{"pull dns", "run /srv/dns/start.sh", "pull web", "up web"}
+	if !slices.Equal(r.log.Events, want) || r.state(t) != migration.Migrated {
+		t.Errorf("events %v, journal %s", r.log.Events, r.state(t))
+	}
+	if !slices.ContainsFunc(steps, func(s string) bool { return strings.HasPrefix(s, "could not pull the images of web") }) {
+		t.Errorf("a failed pull was not passed: %v", steps)
+	}
+	if !slices.Equal(r.files.Written[written:], []string{migration.JournalPath}) {
+		t.Errorf("wrote more than the journal: %v", r.files.Written[written:])
+	}
+}
+
+func TestHooksThatCannotRunStopNothing(t *testing.T) {
+	r := newRig()
+	r.files.Plain = []string{"/srv/dns/stop.sh"}
+	_, err := r.m.PlanMigration(context.Background(), hostplan.MigrateRequest{Limen: limen})
+	if errkind.Of(err) != errkind.Invalid || !strings.Contains(err.Error(), "chmod +x /srv/dns/stop.sh") || len(r.log.Events) != 0 {
+		t.Errorf("%v %v", err, r.log.Events)
+	}
 }
 
 func TestAFailedStartRollsBack(t *testing.T) {
@@ -187,9 +233,6 @@ func TestAFailedStartRollsBack(t *testing.T) {
 	}
 	if got := r.state(t); got != migration.Switched {
 		t.Fatalf("journal %s", got)
-	}
-	if plan, _ := r.m.PlanMigration(context.Background(), hostplan.MigrateRequest{Limen: limen}); len(plan.Refusals) == 0 {
-		t.Error("a new migration was not refused half way")
 	}
 
 	r.m.Compose = &fake.Compose{Log: r.log}

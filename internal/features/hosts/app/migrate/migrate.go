@@ -70,10 +70,15 @@ func (m *Migrator) PlanMigration(ctx context.Context, r hostplan.MigrateRequest)
 	if facts.HooksErr != "" {
 		return hostplan.Migration{}, fmt.Errorf("%s: %w", facts.HooksErr, errkind.ErrInvalid)
 	}
-	out := migration.Decide(facts, plan.Decide(facts), r)
-	if j, err := m.journal(); err != nil {
+	j, err := m.journal()
+	if err != nil {
 		return hostplan.Migration{}, err
-	} else if j != nil && (j.State == migration.Stopping || j.State == migration.Switched) {
+	}
+	if j != nil && j.State == migration.Switched && facts.Engine.Snapshotter {
+		return m.resumption(j), nil
+	}
+	out := migration.Decide(facts, plan.Decide(facts), r)
+	if j != nil && (j.State == migration.Stopping || j.State == migration.Switched) {
 		out.Refusals = append(out.Refusals, "a migration stopped half way (state "+j.State+"): run limenctl rollback first")
 	}
 	if len(out.Refusals) > 0 {
@@ -103,13 +108,29 @@ func (m *Migrator) PlanMigration(ctx context.Context, r hostplan.MigrateRequest)
 	return out, nil
 }
 
+// resumption finishes the move the journal recorded: Docker is on the containerd store already,
+// so what is left is loading the images saved before the switch (when they still wait) and
+// starting the projects.
+func (m *Migrator) resumption(j *migration.Journal) hostplan.Migration {
+	out := hostplan.Migration{To: hostplan.Containerd, Resume: true, Projects: j.Projects,
+		Notes: []string{"a migration started " + j.Started + " stopped after Docker came back on the containerd store: this finishes it (limenctl rollback still goes back)"}}
+	if _, err := m.Files.Size(migration.KeepPath); err == nil {
+		out.Keep, out.KeepPath = []string{migration.KeepPath}, migration.KeepPath
+	}
+	return out
+}
+
 // Migrate makes the move: save the images built on the host, prune, have limen fetch ahead, stop
 // the projects, write the files, restart Docker on the containerd store, load the saved images,
-// and start the projects again. Up to the stop nothing is
-// changed; past it, a failure leaves the journal saying how far it got, for limenctl rollback.
+// and pull and start the projects again. Up to the stop nothing is changed; past it, a failure
+// leaves the journal saying how far it got, for limenctl rollback, or, once Docker is on the new
+// store, for migrate to finish (a resumption).
 func (m *Migrator) Migrate(ctx context.Context, mig hostplan.Migration, progress func(string)) error {
 	if len(mig.Refusals) > 0 {
 		return fmt.Errorf("the migration is refused: %s: %w", strings.Join(mig.Refusals, "; "), errkind.ErrConflict)
+	}
+	if mig.Resume {
+		return m.finish(ctx, mig, progress)
 	}
 	if len(mig.Keep) > 0 {
 		progress(fmt.Sprintf("saving %d images built on this host to %s", len(mig.Keep), mig.KeepPath))
@@ -150,6 +171,12 @@ func (m *Migrator) Migrate(ctx context.Context, mig hostplan.Migration, progress
 	if err := m.record(j); err != nil {
 		return err
 	}
+	return m.finish(ctx, mig, progress)
+}
+
+// finish is a move's part on the new store: load the saved images, pull and start the projects,
+// and record the move made.
+func (m *Migrator) finish(ctx context.Context, mig hostplan.Migration, progress func(string)) error {
 	if len(mig.Keep) > 0 {
 		progress("loading the images built on this host into the new store")
 		if err := m.Engine.LoadImages(ctx, mig.KeepPath); err != nil {
@@ -159,11 +186,15 @@ func (m *Migrator) Migrate(ctx context.Context, mig hostplan.Migration, progress
 			return fmt.Errorf("removing %s: %w", mig.KeepPath, err)
 		}
 	}
-	if err := m.start(ctx, mig.Projects, progress); err != nil {
+	if err := m.start(ctx, mig.Projects, true, progress); err != nil {
 		return err
 	}
+	j, err := m.journal()
+	if err != nil || j == nil {
+		return cmp.Or(err, fmt.Errorf("the migration's journal is gone: %w", errkind.ErrNotFound))
+	}
 	j.State = migration.Migrated
-	return m.record(j)
+	return m.record(*j)
 }
 
 // PlanRollback works out the way back to the classic store from the journal.
@@ -198,7 +229,7 @@ func (m *Migrator) Rollback(ctx context.Context, back hostplan.Migration, progre
 	if err := m.switchStore(ctx, back, false, progress); err != nil {
 		return err
 	}
-	if err := m.start(ctx, back.Projects, progress); err != nil {
+	if err := m.start(ctx, back.Projects, false, progress); err != nil {
 		return err
 	}
 	j.State = migration.RolledBack
@@ -227,9 +258,19 @@ func (m *Migrator) stop(ctx context.Context, projects []hostplan.MigrateProject,
 	return nil
 }
 
-// start starts the projects in order.
-func (m *Migrator) start(ctx context.Context, projects []hostplan.MigrateProject, progress func(string)) error {
+// start starts the projects in order. With pull, each project's images are pulled just before it
+// starts, while its stop hook's arrangements still hold: a DNS project's stop hook often points
+// the host at another resolver, and a pull on the containerd store asks the registry itself for
+// more than limen serves (an image's referrers), which needs the host to resolve names. Its start
+// hook then finds the images there. A failed pull is passed: starting pulls again.
+func (m *Migrator) start(ctx context.Context, projects []hostplan.MigrateProject, pull bool, progress func(string)) error {
 	for _, p := range projects {
+		if pull {
+			progress("pulling the images of " + p.Name)
+			if err := m.Compose.Pull(ctx, project(p)); err != nil {
+				progress(fmt.Sprintf("could not pull the images of %s (%v): starting it pulls them", p.Name, err))
+			}
+		}
 		progress("starting " + p.Name)
 		var err error
 		if p.Start != "" {

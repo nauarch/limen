@@ -5,6 +5,8 @@ package report
 
 import (
 	"context"
+	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -119,7 +121,7 @@ func (g *Gatherer) mirror(ctx context.Context, f *plan.Facts) {
 }
 
 // hooks reads the hooks the host's owner named; none when the file is missing, and why when it
-// cannot be read.
+// cannot be read or names a script that cannot run (limenctl runs each as a program of its own).
 func (g *Gatherer) hooks() (map[string]hooks.Hooks, string) {
 	data, err := g.Files.Read(hooks.Path)
 	if errkind.Of(err) == errkind.NotFound {
@@ -131,6 +133,22 @@ func (g *Gatherer) hooks() (map[string]hooks.Hooks, string) {
 	owned, err := hooks.Parse(data)
 	if err != nil {
 		return nil, err.Error()
+	}
+	names := slices.Sorted(maps.Keys(owned))
+	for _, name := range names {
+		for _, script := range []string{owned[name].Stop, owned[name].Start} {
+			if script == "" {
+				continue
+			}
+			switch ok, err := g.Files.Executable(script); {
+			case errkind.Of(err) == errkind.NotFound:
+				return nil, fmt.Sprintf("%s: project %s: %s does not exist", hooks.Path, name, script)
+			case err != nil:
+				return nil, err.Error()
+			case !ok:
+				return nil, fmt.Sprintf("%s: project %s: %s is not executable (chmod +x %s)", hooks.Path, name, script, script)
+			}
+		}
 	}
 	return owned, ""
 }

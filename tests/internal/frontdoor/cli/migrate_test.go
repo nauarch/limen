@@ -4,8 +4,9 @@
 package cli_test
 
 // Verifies:
-//   - migrate prints its steps in order (prune, prefetch, stop last first, files, restart, start)
-//     and its notes, and takes them only with --yes, printing each as it goes
+//   - migrate prints its steps in order (prune, prefetch, stop last first, files, restart, pull
+//     and start) and its notes, and takes them only with --yes, printing each as it goes
+//   - Finishing a migration stopped on the new store prints only what is left
 //   - A refused plan prints why and exits 1 without moving
 //   - rollback and cleanup-old-store are dry runs without --yes; cleanup says what it frees
 
@@ -85,16 +86,33 @@ func TestMigratePrintsItsStepsInOrder(t *testing.T) {
 		"4. stop the projects", "web: docker compose stop", "dns: /srv/dns/stop.sh",
 		"5. write the files", "/etc/docker/daemon.json (new)",
 		"6. restart Docker on the containerd image store", "7. load the saved images into the new store",
-		"8. start the projects", "dns: /srv/dns/start.sh", "web: docker compose up --detach",
+		"8. pull each project's images, then start it", "dns: /srv/dns/start.sh", "web: docker compose up --detach",
 		"Worth knowing:", "project old is not running", "Dry run",
 	}
+	inOrder(t, out, order)
+}
+
+func TestAMigrationStoppedOnTheNewStorePrintsWhatIsLeft(t *testing.T) {
+	m := &migrator{plan: hostplan.Migration{To: hostplan.Containerd, Resume: true, Keep: []string{"/var/lib/limenctl/images.tar"}, KeepPath: "/var/lib/limenctl/images.tar",
+		Projects: []hostplan.MigrateProject{{Name: "dns", Start: "/srv/dns/start.sh"}}, Notes: []string{"this finishes it"}}}
+	code, out := moving(m, "migrate")
+	if code != 0 || strings.Contains(out, "stop the projects") || strings.Contains(out, "restart Docker") {
+		t.Fatalf("%d\n%s", code, out)
+	}
+	inOrder(t, out, []string{"Finishing the move to the containerd image store", "1. load the images saved in /var/lib/limenctl/images.tar",
+		"2. pull each project's images, then start it", "dns: /srv/dns/start.sh", "this finishes it", "Dry run"})
+}
+
+// inOrder fails unless out holds each of want, in order.
+func inOrder(t *testing.T, out string, want []string) {
+	t.Helper()
 	at := 0
-	for _, want := range order {
-		i := strings.Index(out[at:], want)
+	for _, w := range want {
+		i := strings.Index(out[at:], w)
 		if i < 0 {
-			t.Fatalf("missing %q after byte %d in\n%s", want, at, out)
+			t.Fatalf("missing %q after byte %d in\n%s", w, at, out)
 		}
-		at += i + len(want)
+		at += i + len(w)
 	}
 }
 

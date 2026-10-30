@@ -25,6 +25,8 @@ type Files interface {
 	Remove(path string) error
 	// MakeDir makes a folder and the folders above it; one that exists is no error.
 	MakeDir(path string) error
+	// Executable tells whether a file runs as a program of its own (an executable bit is set).
+	Executable(path string) (bool, error)
 }
 
 // Services are the host's system services.
@@ -67,6 +69,8 @@ type Compose interface {
 	Stop(ctx context.Context, p Project) error
 	// Up creates and starts a project's containers, pulling or building their images as needed.
 	Up(ctx context.Context, p Project) error
+	// Pull pulls a project's images, passing those it builds.
+	Pull(ctx context.Context, p Project) error
 }
 
 // Scripts run the host's own scripts.

@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"github.com/nauarch/limen/internal/contracts/host"
 	"github.com/nauarch/limen/internal/kernel/errkind"
@@ -124,3 +125,16 @@ func (d Dir) Remove(path string) error {
 
 // MakeDir makes a folder and the folders above it.
 func (d Dir) MakeDir(path string) error { return os.MkdirAll(d.at(path), 0o755) }
+
+// Executable tells whether a file has an executable bit; Windows keeps none, so there every file
+// is.
+func (d Dir) Executable(path string) (bool, error) {
+	info, err := os.Stat(d.at(path))
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, fmt.Errorf("%s: %w", path, errkind.ErrNotFound)
+	}
+	if err != nil {
+		return false, err
+	}
+	return runtime.GOOS == "windows" || info.Mode()&0o111 != 0, nil
+}

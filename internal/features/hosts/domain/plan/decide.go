@@ -121,7 +121,7 @@ func projectFindings(projects []hostplan.Project, loose []string, f Facts) []hos
 	var out []hostplan.Finding
 	owned := f.Hooks
 	if f.HooksErr != "" {
-		out = append(out, hostplan.Finding{Level: hostplan.Warn, Text: "hooks cannot be read: " + f.HooksErr})
+		out = append(out, hostplan.Finding{Level: hostplan.Warn, Text: "hooks cannot be used: " + f.HooksErr})
 	}
 	if f.ComposeErr != "" && slices.ContainsFunc(projects, func(p hostplan.Project) bool {
 		return p.Running > 0 && (owned[p.Name].Stop == "" || owned[p.Name].Start == "")

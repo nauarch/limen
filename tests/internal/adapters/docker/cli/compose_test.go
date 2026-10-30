@@ -4,8 +4,8 @@
 package cli_test
 
 // Verifies:
-//   - compose stop and up name the project, its folder and every compose file, as compose
-//     recorded them; up runs in the background and pulls quietly
+//   - compose stop, up and pull name the project, its folder and every compose file, as compose
+//     recorded them; up runs in the background and pulls quietly; pull passes what is built
 //   - A failing compose is an error
 //   - Its version is asked short; a docker without the plugin fails
 //   - An image is pulled quietly and removed by its name
@@ -28,8 +28,11 @@ func TestComposeNamesTheProjectFully(t *testing.T) {
 	if err := c.Up(context.Background(), p); err != nil {
 		t.Fatal(err)
 	}
+	if err := c.Pull(context.Background(), p); err != nil {
+		t.Fatal(err)
+	}
 	const named = "compose --project-name dns --project-directory /srv/dns --file /srv/dns/docker-compose.yaml --file /srv/dns/override.yaml"
-	if len(ran) != 2 || ran[0] != named+" stop" || ran[1] != named+" up --detach --quiet-pull" {
+	if len(ran) != 3 || ran[0] != named+" stop" || ran[1] != named+" up --detach --quiet-pull" || ran[2] != named+" pull --ignore-buildable --quiet" {
 		t.Errorf("%q", ran)
 	}
 	if err := cli.NewCompose(script(nil, &ran)).Up(context.Background(), p); err == nil {
