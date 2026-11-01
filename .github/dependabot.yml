@@ -1,5 +1,6 @@
 # Keeps what limen builds with current: the GitHub Actions its workflows use, and the Go and
-# base images in its Dockerfile. limen has no Go module dependencies to update.
+# base images in its Dockerfile. limen has no Go module dependencies to update. Patch and minor
+# updates merge themselves once CI passes (workflows/dependabot.yml).
 version: 2
 updates:
   - package-ecosystem: github-actions
@@ -8,6 +9,8 @@ updates:
       interval: weekly
     open-pull-requests-limit: 3
     labels: [ci]
+    commit-message:
+      prefix: ci
 
   - package-ecosystem: docker
     directory: /
@@ -15,3 +18,5 @@ updates:
       interval: weekly
     open-pull-requests-limit: 3
     labels: [build]
+    commit-message:
+      prefix: build
